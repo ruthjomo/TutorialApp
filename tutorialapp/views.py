@@ -1,33 +1,77 @@
-from django.shortcuts import render, redirect
-from django.http  import HttpResponse, Http404,HttpResponseRedirect
-from .models import Post, Profile,
-from django.contrib.auth.models import User
-from .email import send_welcome_email
+from django.shortcuts import render,get_object_or_404,redirect
+from django.http  import HttpResponse
 from django.contrib.auth.decorators import login_required
-from .forms import SignUpForm, NewPostForm, CommentForm, ProfileForm
+from .models import Profile,Project,Votes
+from .forms import PostProject,UpdateUser,UpdateProfile,SignUpForm,Votes
+from django.contrib.auth.models import User
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from .serializers import ProjectSerializer,UserSerializer
+from rest_framework import status
+from .permission import IsAdminOrReadOnly
+from django.http import HttpResponseRedirect
+from django.urls import reverse
+from django.contrib import messages
 
-# Views.
-@login_required(login_url='/login/')
+
+# Views
+# Index view
 def index(request):
-
     # Default view
-    current_user = request.user
-    posts = Post.objects.all()
-    comments = Comment.get_comments()
+    project = Project.objects.all()
     profiles = Profile.objects.all()
+    return render(request,'index.html', {'project':project, 'profiles':profiles})
 
-    if request.method == 'POST':
-        form = CommentForm(request.POST)
-        if form.is_valid():
-            comment = form.save(commit=False)
-            comment.user = current_user
-            comment.post = Post.objects.get(id=int(request.POST["post_id"]))
-            comment.save()
-            return redirect('home')
+# User profile view
+@login_required
+def profile(request):
+    return render(request,'profile.html')
+
+#specific project
+@login_required
+def project(request, id):
+    project= Project.objects.get(id=id)
+    votes= Votes.objects.all()
+    form=Voting()
+
+    return render(request, 'project.html',{'project':project, 'votes':votes,'form':form, id:'id'})
+
+def vote(request, id):
+    project= Project.objects.get(id=id)
+    votes=Voting(request.POST)
+    if votes.is_valid():
+        vote=votes.save(commit=False)
+        vote.user=request.user
+        vote.project=project
+        vote.save() 
+        messages.success(request,'Votes Successfully submitted')
+        return HttpResponseRedirect(reverse('project',  args=(id)))
+    
     else:
-        form = CommentForm()
+        messages.warning(request,'ERROR! Voting Range is from 0-10')
+        votes=Votes()     
+    return render(request, 'project.html', locals())
 
-    return render(request, 'index.html', {'current_user':current_user,'posts':posts, 'form':form, 'comments':comments,'profiles':profiles})
+@login_required
+def new_project(request):
+    current_user=request.user
+    if request.method=='POST':
+        form=PostProject(request.POST,request.FILES)
+        if form.is_valid():
+            project=form.save(commit=False)
+            project.user=current_user
+            project.save()
+        return redirect('home')
+    
+    else:
+        form=PostProject()
+        
+    return render(request,'new_project.html',{'form':form})
+
+@login_required
+def posted_by(request, user_id):
+    user=get_object_or_404(User,pk=user_id)
+    return render(request,'posted_by.html', {'user':user})
 
 def signup(request):
     name = "Sign Up"
@@ -38,9 +82,9 @@ def signup(request):
             email = form.cleaned_data.get('email')
             name = form.cleaned_data.get('username')
             send_mail(
-            'Welcome to Instagram App.',
+            'Welcome to Awwards Gallery App.',
             f'Hello {name},\n '
-            'Welcome to Instagram App.Have fun!',
+            'Welcome to Awwards App and have fun.',
             'ruthjomo19@gmail.com@gmail.com',
             [email],
             fail_silently=False,
@@ -50,77 +94,111 @@ def signup(request):
         form = SignUpForm()
     return render(request, 'registration/registration_form.html', {'form': form, 'name':name})
 
-@login_required(login_url='/accounts/login/')
-def new_post(request):
-    current_user = request.user
-   
-    if request.method == 'POST':
-        form = NewPostForm(request.POST, request.FILES)
-        if form.is_valid():
-            post = form.save(commit=False)
-            post.user= current_user
-            post.save()
-        return redirect('home')
-    else:
-        form = NewPostForm()
-    return render(request, 'post_new.html', {'current_user':current_user, 'form':form})
-
-@login_required(login_url='/accounts/login/')
-def update_profile(request):
+def search_project(request):
     """
-    Function that enables one to edit their profile information
+    Function that searches for projects
     """
-    current_user = request.user
-    profile = Profile.objects.get(user=request.user)
-    if request.method == 'POST':
-        form = ProfileForm(request.POST, request.FILES, instance=Profile.objects.get(user_id=current_user))
-        if form.is_valid():
-                profile = form.save(commit=False)
-                profile.user = current_user
-                profile.save()
-        return redirect('home')
-
-    
-    else:
-        if Profile.objects.filter(user_id=current_user).exists():
-            form = ProfileForm(instance = Profile.objects.get(user_id=current_user))
-        else:
-            form = ProfileForm()
-    return render(request, 'profile/edit_profile.html', {'current_user':current_user, 'form':form, 'profile':profile})
-
-
-def profile(request, user_id):
-    """
-    Function that enables one to see their profile
-    """
-    current_user = request.user
-    user = User.objects.get(pk=user_id)
-    posts = Post.get_posts()
-    comments = Comment.get_comments()
-    credentials = Profile.objects.filter(user = user_id)
-    
-    if Follow.objects.filter(following=request.user,follower= user).exists():
-        follows_me =True
-
-    else:
-        follows_me=False
-    followers=Follow.objects.filter(follower = user).count()
-    following=Follow.objects.filter(following = user).count()
-
-    return render(request, 'profile/profile.html', {'follows_me':follows_me,'following':following,'followers':followers,'current_user':current_user, 'posts':posts, 'comments':comments, 'credentials':credentials})
-
-def search_user(request):
-    """
-    Function that searches for profiles based on the usernames
-    """
-    if 'username' in request.GET and request.GET["username"]:
-        search_term = request.GET.get("username")
-        searched_profiles = User.objects.filter(username__icontains=search_term)
+    if 'project' in request.GET and request.GET["project"]:
+        search_term = request.GET.get("project")
+        searched_projects = Project.objects.filter(title__icontains=search_term)
         message = f"{search_term}"
-        profiles = User.objects.all()
+        projects = Project.objects.all()
         
-        return render(request, 'search.html', {"message": message, "usernames": searched_profiles, "profiles": profiles, })
+        return render(request, 'search.html', {"message": message, "projects": searched_projects})
 
     else:
         message = "You haven't searched for any term"
         return render(request, 'search.html', {"message": message})
+
+def update_profile(request):
+    update_user=UpdateUser(request.POST,instance=request.user)
+    update_profile=UpdateProfile(request.POST,request.FILES,instance=request.user.profile)
+    if update_user.is_valid() and update_profile.is_valid():
+        update_user.save()
+        update_profile.save()
+        
+        messages.success(request, 'Profile Updated Successfully')
+        return redirect('profile')
+    
+    else:
+        update_user=UpdateUser(instance=request.user)
+        update_profile=UpdateProfile(instance=request.user.profile)
+    return render(request, 'update_profile.html',{'update_user':update_user,'update_profile':update_profile})
+
+# Api views
+def api(request):
+    return render(request,'api.html')
+
+class ProjectList(APIView):
+    def get(self,response,format=None):
+        projects=Project.objects.all()
+        serializer=ProjectSerailizer(projects,many=True)
+        return Response(serializer.data)
+    
+    @login_required
+    def post(self,request,format=None):
+        permission_classes=(IsAdminOrReadOnly,)
+        serializer=ProjectSerailizer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data,status=status.HTTP_201_CREATED)
+        
+        return Response(serializer.errors,status=status.HTTP_400_BAD_REQUEST)
+    
+        permission_classes=(IsAdminOrReadOnly,)
+
+class UserList(APIView):
+    def get(self,response,format=None):
+        users=User.objects.all()
+        serializer=UserSerializer(users,many=True)
+        return Response(serializer.data)
+ 
+ # Gets project by id 
+class ProjectDescription(APIView):
+    permission_classes=(IsAdminOrReadOnly,)  
+    def get_project(self,pk):
+        return get_object_or_404(Project,pk=pk)
+    # gets project by id
+    def get(self, request, pk ,format=None):
+        project= self.get_project(pk)
+        serializer=ProjectSerailizer(project)
+        return Response(serializer.data)
+    # updates a specific project
+    def put(self, request,pk, format=None):
+        project=self.get_project(pk)
+        serializer=ProjectSerailizer(project,request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        else:
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    # Deletes a pjoect 
+    def delete(self,request,pk,format=None):
+        project=self.get_project(pk)
+        project.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+        
+# Gets User by id     
+class UserDescription(APIView):
+    permission_classes=(IsAdminOrReadOnly,)  
+    def get_user(self,pk):
+        return get_object_or_404(User,pk=pk)
+    # Gets user by id
+    def get(self, request, pk ,format=None):
+        user= self.get_user(pk)
+        serializer=UserSerializer(user)
+        return Response(serializer.data)
+    # Updates a specific user
+    def put(self, request,pk, format=None):
+        user=self.get_user(pk)
+        serializer=UserSerializer(user,request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        else:
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    # Deletes a user   
+    def delete(self,request,pk,format=None):
+        user=self.get_user(pk)
+        user.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
