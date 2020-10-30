@@ -1,57 +1,47 @@
-from django.db import models  
+from django.db import models
+from django.contrib.auth.models import User
+from django.core.validators import MaxValueValidator,MinValueValidator
 
-class Post(models.Model):
-    image = models.ImageField(upload_to = 'media/', default='No Image')
-    user = models.ForeignKey(User, on_delete=models.CASCADE, default='')
-    caption = models.CharField(max_length = 60)
-    pub_date = models.DateTimeField(auto_now_add=True)
-    likes = models.IntegerField(default=0)
+# Models.
+class  Project(models.Model):
+    user=models.ForeignKey(User, on_delete=models.CASCADE)
+    image=models.ImageField(upload_to='project/', default='No image')
+    title=models.CharField(max_length=60)
+    description=models.TextField()
+    link=models.CharField(max_length=100)
+    location=models.CharField(max_length=30)
+    posted=models.DateTimeField(auto_now_add=True) 
 
-    @classmethod
-    def get_posts(cls):
-        posts = cls.objects.all()
-        return posts
-        
-    def save_post(self):
+    def __str__(self):
+        return self.title
+    
+    def save_project(self):
         self.save()
-
-    def delete_post(self):
-        self.delete()
-
-    class Meta:
-        ordering = ['pub_date']
-
-    @classmethod
-    def update_post(self, update):
-        self.post = update
-        self.save
+    
+    @classmethod    
+    def get_project(cls, id):
+        project=Project.objects.get(pk=id)
+        return project
 
     @classmethod
-    def display_user_post(cls):
-        post = cls.objects.filter()
-        return post
+    def search_project(cls, search_term):
+        user = cls.objects.filter(title__icontains=search_term)
+        return project 
+    
+    @classmethod   
+    def delete_project(cls,delete_id):
+        Project.objects.filter(pk=delete_id).delete()
 
 class Profile(models.Model):
-    user = models.OneToOneField(User, on_delete=models.CASCADE, null=True, blank=True,default='')
-    photo = models.ImageField(upload_to = 'media/', default='No Image')
-    bio = models.TextField(max_length = 255)
-
+    user=models.OneToOneField(User, on_delete=models.CASCADE)
+    image=models.ImageField(upload_to='profile/', default='default.png')
+    bio=models.TextField(blank=True)
+    contact=models.CharField(max_length=30, blank=True)
+    location=models.CharField(max_length=50,  blank=True)
+    company=models.CharField(max_length=50, blank=True)
+    
+    def __str__(self):
+        return self.user.username
+    
     def save_profile(self):
         self.save()
-
-    def delete_profile(self):
-        self.delete()
-
-    def updateProfile(self, update):
-       self.bio = update
-       self.save
-
-    @classmethod
-    def search_profile(cls, search_term):
-        user = cls.objects.filter(user__username__icontains=search_term)
-        return user 
-
-    @classmethod
-    def get_by_id(cls, id):
-        profile = cls.objects.get(id=id)
-        return profile
